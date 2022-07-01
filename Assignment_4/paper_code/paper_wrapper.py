@@ -1,7 +1,9 @@
+import pandas as pd
 import numpy as np
 from sklearn.feature_selection import mutual_info_classif as MI
 from sklearn.feature_selection import chi2 as CS
 from ReliefF import ReliefF
+from sklearn.preprocessing import MinMaxScaler
 from .whale_optimizer import WhaleOptimizer as WOA
 from .utils import (
     score_feature_with_name,
@@ -49,38 +51,48 @@ class PaperWrapper:
         # Get mutual information
         mi_top_m = [
             feature
-            for feature, score in score_feature_with_name(X.columns, MI(X, y))[
+            for feature, score in score_feature_with_name(range(X.shape[0]), MI(X, y))[
                 -self.M :
             ]
         ]
         # Get Chi Square
-        cs_top_m = [
-            feature
-            for feature, score in score_feature_with_name(X.columns, CS(X, y)[1])[
-                -self.M :
-            ]
-        ]
+        # cs_top_m = [
+        #     feature
+        #     for feature, score in score_feature_with_name(range(X.shape[0]), CS(X, y)[1])[
+        #         -self.M :
+        #     ]
+        # ]
         # Get Xvariance
         cs_top_m = X_variance(X, y, self.M)
         # Get RFF
         relief_data = ReliefF(n_neighbors=20, n_features_to_keep=self.M).fit_transform(
-            X.values, y.values
+            X, y
         )
         rff_top_m = []
-        for col_name in X.columns:
-            col_vector = X[col_name]
+        for col_idx in range(X.shape[1]):
+            col_vector = X[:,col_idx]
             for rff_vector in relief_data.T:
                 if np.all(col_vector == rff_vector):
-                    rff_top_m.append(col_name)
+                    rff_top_m.append(col_idx)
                     break
         # Union-set
-        return set([*mi_top_m, *cs_top_m, *rff_top_m, *cs_top_m])
+        #*cs_top_m,
+        return set([*mi_top_m, *rff_top_m, *cs_top_m])
 
     def _phase_1(self, X, y):
-        features_selected = self._ranked_union(X, y)
-        score = score_knn_nb_svm(features_selected, X, y)
+        """_summary_
+
+        Args:
+            X (_type_): _description_
+            y (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        features_idx_selected = self._ranked_union(X, y)
+        score = score_knn_nb_svm(features_idx_selected, X, y)
         top_k_features = [
-            feature for feature, score in set(score_feature_with_name(X.columns, score))
+            feature for feature, score in set(score_feature_with_name(range(X.shape[0]), score))
         ]
         return get_xgb_top_k(top_k_features, X, y, self.J)
 
@@ -89,6 +101,7 @@ class PaperWrapper:
         return get_xgb_top_k(list(features), X, y, self.J)
 
     def _phase_3(self, X, y, features):
+        X = pd.DataFrame(X)        
         self.feature_mapper = {idx: name for idx, name in enumerate(X.columns)}
         optimizer = WOA(
             self._fittness_wrapper(X, y),
@@ -102,6 +115,18 @@ class PaperWrapper:
         return get_features_by_bit_vector(solution, self.feature_mapper)
 
     def __call__(self, X, y):
+        """Activate each step of the Feature Selector
+        Args:
+            X (np.ndarray): input data
+            y (np.array): prediction label
+        """
+        # print(X.shape)
+        scaler = MinMaxScaler()
+        scaler.fit(X)
+        X = scaler.transform(X)
+        # print(X.shape)
         features = self._phase_1(X, y)
         features = self._phase_2(X, y, features)
         return self._phase_3(X, y, features)
+
+    

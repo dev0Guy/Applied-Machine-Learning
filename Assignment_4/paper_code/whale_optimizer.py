@@ -58,3 +58,5 @@ class WhaleOptimizer:
                 self._population[idx] = np.maximum(min_bound, self._population[idx])
                 self._population[idx] = np.minimum(max_bound, self._population[idx])
         return np.rint(x_star).astype(int)
+
+    
